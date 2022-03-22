@@ -139,4 +139,4 @@ def prep_telco(df):
     cleaned =clean_telco(df)
     train, validate, test = split_telco(cleaned)
 
-    return train.shape, validate.shape, test.shape
+    return train, validate, test
