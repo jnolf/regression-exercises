@@ -3,6 +3,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from pydataset import data
+import math
 
 from scipy import stats
 from sklearn.metrics import mean_squared_error, r2_score, explained_variance_score
@@ -55,20 +56,20 @@ def r2_score(actual, predicted):
 ### Function that returns all regression errors
 def regression_errors(actual, predicted):
     return pd.Series({
-        'sse': sse(actual, predicted),
-        'ess': ess(actual, predicted),
-        'tss': tss(actual),
-        'mse': mse(actual, predicted),
-        'rmse': rmse(actual, predicted),
+        'SSE': sse(actual, predicted),
+        'ESS': ess(actual, predicted),
+        'TSS': tss(actual),
+        'MSE': mse(actual, predicted),
+        'RMSE': rmse(actual, predicted),
     })
 
 ### Function that computes the SSE, MSE, and RMSE for the baseline model
 def baseline_mean_errors(actual):
     predicted = actual.mean()
     return {
-        'sse': sse(actual, predicted),
-        'mse': mse(actual, predicted),
-        'rmse': rmse(actual, predicted),
+        'SSE': sse(actual, predicted),
+        'MSE': mse(actual, predicted),
+        'RMSE': rmse(actual, predicted),
     }
 
 ### Function that returns true if your model performs better than the baseline, otherwise false
