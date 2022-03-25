@@ -13,8 +13,9 @@ warnings.filterwarnings("ignore")
 ############################# Acquire ###############################
 
 def acquire_zillow(use_cache=True):
-    ''' This function acquires the data needed from Zillow on
-    housing.
+    ''' 
+    This function acquires all necessary housing data from zillow 
+    needed to better understand future pricing
     '''
     
     if os.path.exists('zillow.csv') and use_cache:
@@ -23,20 +24,56 @@ def acquire_zillow(use_cache=True):
     print('Acquiring data from SQL database')
 
     database_url_base = f'mysql+pymysql://{username}:{password}@{host}/zillow'
-    query ='''
+    query = '''
     SELECT bedroomcnt AS bedrooms, 
            bathroomcnt AS bathrooms, 
-           calculatedfinishedsquarefeet AS finished_sqft, 
-           taxvaluedollarcnt AS tax_value,
+           calculatedfinishedsquarefeet AS sqft, 
+           taxvaluedollarcnt AS tax_value, 
            yearbuilt AS yr_built,
            taxamount AS tax_amount,
+           regionidcounty AS county_id,
            fips
-    FROM properties_2017
-    WHERE propertylandusetypeid = '261';
-    '''
+        FROM properties_2017
+    
+        JOIN propertylandusetype USING(propertylandusetypeid)
+        
+        JOIN predictions_2017 pr USING (parcelid)
+        WHERE propertylandusedesc IN ('Single Family Residential',
+        
+                                      'Inferred Single Family Residential')
+                              AND pr.transactiondate LIKE '2017%%';
+            '''
+    
+    
     df = pd.read_sql(query, database_url_base)
     df.to_csv('zillow.csv', index=False)
    
+    return df
+
+#################### Outliers (Hope This Works) ####################
+
+def remove_outliers(df, k, col_list):
+    ''' 
+    This function remove outliers from a list of columns in a dataframe 
+    and returns that dataframe
+    '''
+    
+    # loop through each column
+    for col in col_list:
+        
+        # Get the quantiles
+        q1, q3 = df[col].quantile([.25, .75])
+        
+        # Get the quantile range
+        iqr = q3 - q1
+        
+        # Establish the upper and lower
+        upper_bound = q3 + k * iqr  
+        lower_bound = q1 - k * iqr   
+
+        # Redefine the DataFrame with removed outliers
+        df = df[(df[col] > lower_bound) & (df[col] < upper_bound)]
+        
     return df
 
 ############################# Clean ################################
@@ -46,75 +83,57 @@ def clean_zillow(df):
     This function takes in the zillow data, cleans it, and returns a dataframe
     '''
     
-    # Rename some columns for simplicity
-    df = df.rename(columns={'bedroomcnt':'bedrooms', 'bathroomcnt':'bathrooms', 
-                            'calculatedfinishedsquarefeet':'area',
-                            'taxvaluedollarcnt':'taxvalue'})
     # Apply a function to remove outliers
-    df = remove_outliers(df, 1.5, ['bedrooms', 'bathrooms','area','taxvalue','taxamount'])
+    df = remove_outliers(df, 1.5, ['bedrooms','bathrooms',
+                                   'sqft','taxvalue','taxamount'])
     
-    # Remove more of the outliers for area
-    df = df[(df.area > 500) & (df.area < 2500)]
+    # Remove more of the outliers for sqft
+    df = df[(df.sqft > 500) & (df.sqft < 2500)]
     # Remove more of the outliers for taxvalue
     df = df[(df.taxvalue > 500) & (df.taxvalue < 800000)]
     
-    # Drop rows with null values since it is only a small portion of the dataframe 
+    # Drop rows with null values since it is only a small portion of the
+    dataframe 
     df = df.dropna()
 
-    # create age column based on yearbuilt
-    df['age'] = 2021 - df.yearbuilt
-    
     # Create list of datatypes I want to change
-    int_col_list = ['bedrooms','area','taxvalue','age']
-    obj_col_list = ['yearbuilt','fips']
+    int_cols = ['bedrooms','sqft','tax_amount','age']
+    obj_cols = ['yr_built']
     
-    # Change data types where it makes sense
+    # Change data types of above columns
     for col in df:
-        if col in int_col_list:
+        if col in int_cols:
             df[col] = df[col].astype(int)
-        if col in obj_col_list:
+        if col in obj_cols:
             df[col] = df[col].astype(int).astype(object)
     
-    # drop taxamount since we will be predicting tax value and tax amount is considered data leakage
-    df = df.drop(columns='taxamount')
-
-    # Encode FIPS column and concatenate onto original dataframe
-    dummy_df = pd.get_dummies(df['fips'], drop_first=True)
-    df = pd.concat([df, dummy_df], axis=1)
+    # Drop the target column
+    df = df.drop(columns='tax_value')
     
-    return 
+    return df 
 
 ############################# Split ################################
 
-def split_data(df, random_state=123, stratify=None):
+def split_data(df):
     '''
-    This function takes in a dataframe and splits the data into train, validate and test samples. 
-    Test, validate, and train are 20%, 24%, & 56% of the original dataset, respectively. 
+    
     '''
-   
-    if stratify == None:
-        # split dataframe 80/20
-        train_validate, test = train_test_split(df, test_size=.2, random_state=random_state)
-
-        # split larger dataframe from previous split 70/30
-        train, validate = train_test_split(train_validate, test_size=.3, random_state=random_state)
-    else:
-
-        # split dataframe 80/20
-        train_validate, test = train_test_split(df, test_size=.2, random_state=random_state, stratify=df[stratify])
-
-        # split larger dataframe from previous split 70/30
-        train, validate = train_test_split(train_validate, test_size=.3, 
-                            random_state=random_state,stratify=train_validate[stratify])
-
-    # results in 3 dataframes
+    
+    train_val, test = train_test_split(df, train_size=0.8,random_state=123)
+    
+    
+    train, validate = train_test_split(train_val, train_size=0.7, random_state=123)
+    
+    
     return train, validate, test 
 
 ############################ Wrangle ###############################
 
 def wrangle_zillow():
     '''
-    This function acquires, clean, and splits the zillow data and returns it ready for exploration
+    This function combines the acquire, clean and split portions of
+    this file in order to be imported and quickly have data ready 
+    for exploration.
     '''
     
     train, validate, test = split_data(clean_zillow(acquire_zillow()))
